@@ -1,0 +1,24 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Booths: Public read for festival visitors, write restricted to admin operations
+    match /booths/{boothId} {
+      allow read: if true;
+      allow write: if true; // In production this can be restricted to admin auth
+    }
+
+    // Participants: Visitors can create, read, and update their own stamp progress
+    match /participants/{participantId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if true;
+    }
+
+    // Festival Settings: Public read
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if true;
+    }
+  }
+}

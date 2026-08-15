@@ -1,0 +1,10 @@
+{
+  "name": "K.F.C. FESTIVAL EXPERIENCE",
+  "description": "용인시청소년수련관 로봇동아리 K.F.C. 축제 부스 체험 및 QR 코드 미션 스탬프 웹앱",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
