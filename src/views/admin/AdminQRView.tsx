@@ -55,9 +55,20 @@ export const AdminQRView: React.FC<AdminQRViewProps> = ({
             <span>부스별 QR 코드 관리 및 인쇄</span>
           </h2>
           <p className="text-xs text-slate-400">
-            축제 현장에 배치할 부스별 인증 QR 코드를 고화질로 다운로드하거나 인쇄용 스탠드로 출력할 수 있습니다.
+            축제 현장에 배치할 부스별 인증 QR 코드를 고화질로 다운로드하거나 A4 규격 스탠드로 인쇄할 수 있습니다.
           </p>
         </div>
+
+        {booths.length > 0 && (
+          <button
+            onClick={() => onOpenQRModal(booths[0])}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-lg shadow-cyan-500/20 active:scale-95 transition-all"
+            id="btn-admin-batch-print-qr"
+          >
+            <Printer className="w-4 h-4" />
+            <span>전체 부스 스탠드 A4 일괄 인쇄 ({booths.length}장)</span>
+          </button>
+        )}
       </div>
 
       {/* Grid of Booth QR Cards */}
