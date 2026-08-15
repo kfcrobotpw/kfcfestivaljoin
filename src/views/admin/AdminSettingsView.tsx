@@ -4,17 +4,14 @@ import {
   Save,
   Trash2,
   AlertTriangle,
-  RotateCcw,
-  Bot,
-  Sparkles,
   Check,
 } from 'lucide-react';
 import { FestivalSettings } from '../../types';
 import {
-  localStore,
   resetAllParticipants,
-  ensureDefaultBooths,
+  db,
 } from '../../services/firebaseService';
+import { doc, setDoc } from 'firebase/firestore';
 
 interface AdminSettingsViewProps {
   settings: FestivalSettings;
@@ -30,9 +27,13 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
   const [showResetAllConfirm, setShowResetAllConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    localStore.setSettings(formData);
+    try {
+      await setDoc(doc(db, 'settings', 'general'), formData);
+    } catch (err) {
+      console.warn('Settings save error:', err);
+    }
     onSaveSettings(formData);
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 2000);

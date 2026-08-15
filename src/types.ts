@@ -40,6 +40,7 @@ export interface ScanResult {
   message: string;
   booth?: Booth;
   allCompleted?: boolean;
+  participant?: Participant;
 }
 
 export interface SnackRedeemResult {

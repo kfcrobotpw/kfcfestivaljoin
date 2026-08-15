@@ -27,10 +27,11 @@ import {
   subscribeBooths,
   subscribeParticipant,
   subscribeParticipants,
-  localStore,
   ensureDefaultBooths,
   DEFAULT_SETTINGS,
+  db,
 } from './services/firebaseService';
+import { doc, onSnapshot } from 'firebase/firestore';
 import {
   checkIsAdminAuthenticated,
   logoutAdmin,
@@ -45,7 +46,7 @@ export default function App() {
   const [participant, setParticipant] = useState<Participant | null>(null);
   const [booths, setBooths] = useState<Booth[]>([]);
   const [allParticipants, setAllParticipants] = useState<Participant[]>([]);
-  const [settings, setSettings] = useState<FestivalSettings>(() => localStore.getSettings());
+  const [settings, setSettings] = useState<FestivalSettings>(DEFAULT_SETTINGS);
 
   // Modals
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -82,29 +83,37 @@ export default function App() {
     };
   }, []);
 
-  // Subscribe to Firestore / LocalStore Data
+  // Subscribe to Firestore Data
   useEffect(() => {
     ensureDefaultBooths();
 
-    // 1. Subscribe to Booths
+    // 1. Subscribe to Booths in Firestore
     const unsubBooths = subscribeBooths((updatedBooths) => {
       setBooths(updatedBooths);
     });
 
-    // 2. Subscribe to current Participant profile
+    // 2. Subscribe to current Participant profile in Firestore
     const unsubParticipant = subscribeParticipant(participantId, (updatedPart) => {
       setParticipant(updatedPart);
     });
 
-    // 3. Subscribe to all Participants for Admin live dashboard
+    // 3. Subscribe to all Participants for Admin live dashboard in Firestore
     const unsubAllParticipants = subscribeParticipants((updatedAll) => {
       setAllParticipants(updatedAll);
+    });
+
+    // 4. Subscribe to Settings in Firestore
+    const unsubSettings = onSnapshot(doc(db, 'settings', 'general'), (docSnap) => {
+      if (docSnap.exists()) {
+        setSettings(docSnap.data() as FestivalSettings);
+      }
     });
 
     return () => {
       unsubBooths();
       unsubParticipant();
       unsubAllParticipants();
+      unsubSettings();
     };
   }, [participantId]);
 
