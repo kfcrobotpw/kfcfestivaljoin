@@ -237,6 +237,7 @@ export async function getBooths(): Promise<Booth[]> {
 /**
  * Real-Time Firestore Subscription for Single Participant (Visitor Device)
  * Listens for remote updates (e.g. staff redeeming snack voucher from their phone).
+ * Does NOT create a document in Firestore if not yet registered.
  */
 export function subscribeParticipant(
   participantId: string,
@@ -250,8 +251,9 @@ export function subscribeParticipant(
       if (docSnap.exists()) {
         callback(docSnap.data() as Participant);
       } else {
-        // Auto register new participant document in Firestore
-        const newParticipant: Participant = {
+        // Return default in-memory state without saving to Firestore!
+        // Real Firestore registration only occurs when the user actually scans their first booth QR.
+        const defaultState: Participant = {
           id: participantId,
           createdAt: Date.now(),
           completedBooths: [],
@@ -262,10 +264,7 @@ export function subscribeParticipant(
           snackClaimedAt: null,
           lastActiveAt: Date.now(),
         };
-        setDoc(participantRef, newParticipant).catch((e) =>
-          console.warn('[Firestore] Error creating participant:', e)
-        );
-        callback(newParticipant);
+        callback(defaultState);
       }
     },
     (error) => {
@@ -274,6 +273,27 @@ export function subscribeParticipant(
   );
 
   return unsubscribe;
+}
+
+/**
+ * Clean any empty ghost participants (0 completed booths) created previously
+ */
+export async function cleanGhostParticipants(): Promise<void> {
+  try {
+    const snapshot = await getDocs(collection(db, 'participants'));
+    for (const docSnap of snapshot.docs) {
+      const data = docSnap.data() as Participant;
+      if (!data.completedBooths || data.completedBooths.length === 0) {
+        await deleteDoc(docSnap.ref);
+      }
+    }
+  } catch (err) {
+    console.warn('[Firestore] Clean ghost participants error:', err);
+  }
+}
+
+if (typeof window !== 'undefined') {
+  cleanGhostParticipants();
 }
 
 /**
