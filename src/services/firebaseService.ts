@@ -1,20 +1,5 @@
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  onSnapshot,
-  query,
-  orderBy,
-  Unsubscribe,
-} from 'firebase/firestore';
-import { db, isFirebaseConfigured } from '../lib/firebase';
-import { Booth, Participant, FestivalSettings, ScanResult } from '../types';
+import { Booth, Participant, FestivalSettings, ScanResult, SnackRedeemResult } from '../types';
 
-// Default initial booths for K.F.C. Festival
 export const DEFAULT_BOOTHS: Booth[] = [
   {
     id: 'booth_01',
@@ -70,7 +55,7 @@ export const DEFAULT_SETTINGS: FestivalSettings = {
   title: 'K.F.C. FESTIVAL EXPERIENCE',
   subtitle: '모든 체험을 완료하고 간식을 받아가세요!',
   clubName: '용인시청소년수련관 로봇동아리 K.F.C.',
-  snackMessage: '축하합니다! 운영 본부(본관 1층 스낵 부스)에서 진행 요원에게 이 화면을 보여주시면 맛있는 간식 세트를 드립니다.',
+  snackMessage: '축하합니다! 운영 본부(본관 1층 스낵 부스)에서 진행 요원에게 이 화면의 QR 코드를 보여주시면 맛있는 간식 세트를 드립니다.',
   snackStationName: 'K.F.C. 운영본부 스낵 교환처',
   allowManualCode: true,
 };
@@ -96,18 +81,15 @@ export function generateBoothToken(prefix = 'KFC'): string {
   return `${prefix}-${generateRandomCode(5)}-${generateRandomCode(4)}`;
 }
 
-// Local storage helpers for offline / standalone persistence
+// Local cache store
 class LocalStorageStore {
   getBooths(): Booth[] {
     try {
       const data = localStorage.getItem(LOCAL_STORAGE_KEYS.BOOTHS);
-      if (data) {
-        return JSON.parse(data);
-      }
+      if (data) return JSON.parse(data);
     } catch {
       // ignore
     }
-    this.setBooths(DEFAULT_BOOTHS);
     return DEFAULT_BOOTHS;
   }
 
@@ -123,9 +105,7 @@ class LocalStorageStore {
   getParticipants(): Participant[] {
     try {
       const data = localStorage.getItem(LOCAL_STORAGE_KEYS.PARTICIPANTS);
-      if (data) {
-        return JSON.parse(data);
-      }
+      if (data) return JSON.parse(data);
     } catch {
       // ignore
     }
@@ -144,9 +124,7 @@ class LocalStorageStore {
   getSettings(): FestivalSettings {
     try {
       const data = localStorage.getItem(LOCAL_STORAGE_KEYS.SETTINGS);
-      if (data) {
-        return JSON.parse(data);
-      }
+      if (data) return JSON.parse(data);
     } catch {
       // ignore
     }
@@ -179,122 +157,146 @@ export function getOrCreateParticipantId(): string {
 }
 
 /**
- * Clean & normalize QR token from scan input (handles raw token, URLs, querystrings)
+ * Clean & normalize QR token from scan input
  */
 export function parseScannedQrToken(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return '';
 
-  // Case 1: URL with token parameter (e.g. https://domain.com/scan?token=KFC-ROBOT-A7F29 or ?qr=...)
   try {
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
       const url = new URL(trimmed);
       const tokenParam = url.searchParams.get('token') || url.searchParams.get('qr') || url.searchParams.get('code');
-      if (tokenParam) {
-        return tokenParam.trim();
-      }
-      // If pathname ends with token
+      if (tokenParam) return tokenParam.trim();
       const pathParts = url.pathname.split('/').filter(Boolean);
       const lastPart = pathParts[pathParts.length - 1];
-      if (lastPart && lastPart.startsWith('KFC-')) {
-        return lastPart;
-      }
+      if (lastPart && lastPart.startsWith('KFC-')) return lastPart;
     }
   } catch {
-    // Not a standard URL, continue to regex/string extraction
+    // ignore
   }
 
-  // Case 2: Direct token match
   return trimmed;
 }
 
-/**
- * Initialize Booths in Firestore if empty
- */
-export async function ensureDefaultBooths(): Promise<void> {
-  if (!db || !isFirebaseConfigured) {
-    localStore.getBooths();
-    return;
-  }
+// ----------------- Real-Time Server-Sent Events (SSE) Engine -----------------
+type EventListener = (data: any) => void;
+const listeners = new Set<EventListener>();
+let eventSource: EventSource | null = null;
+let reconnectTimer: any = null;
+
+function connectSSE() {
+  if (typeof window === 'undefined') return;
+  if (eventSource && eventSource.readyState !== EventSource.CLOSED) return;
 
   try {
-    const boothsRef = collection(db, 'booths');
-    const snapshot = await getDocs(boothsRef);
-    if (snapshot.empty) {
-      for (const booth of DEFAULT_BOOTHS) {
-        await setDoc(doc(db, 'booths', booth.id), booth);
+    eventSource = new EventSource('/api/events');
+
+    eventSource.onopen = () => {
+      console.log('[SSE] Real-time connection established');
+    };
+
+    eventSource.onmessage = (e) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        if (parsed.payload) {
+          const { booths, participants, settings } = parsed.payload;
+          if (booths) localStore.setBooths(booths);
+          if (participants) localStore.setParticipants(participants);
+          if (settings) localStore.setSettings(settings);
+        }
+        listeners.forEach((listener) => listener(parsed));
+      } catch (err) {
+        console.warn('[SSE] Parse error:', err);
       }
-      console.log('[Firebase] Initialized default booths in Firestore');
+    };
+
+    eventSource.onerror = () => {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connectSSE, 3000);
+    };
+  } catch (err) {
+    console.warn('[SSE] Init error:', err);
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connectSSE, 5000);
+  }
+}
+
+// Initial fetch & SSE connection
+if (typeof window !== 'undefined') {
+  connectSSE();
+  fetch('/api/state')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      if (data) {
+        if (data.booths) localStore.setBooths(data.booths);
+        if (data.participants) localStore.setParticipants(data.participants);
+        if (data.settings) localStore.setSettings(data.settings);
+      }
+    })
+    .catch(() => {});
+}
+
+export async function ensureDefaultBooths(): Promise<void> {
+  try {
+    const res = await fetch('/api/state');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.booths) localStore.setBooths(data.booths);
     }
-  } catch (error) {
-    console.warn('[Firebase] Booths init check error, using local fallback:', error);
+  } catch {
+    localStore.getBooths();
   }
 }
 
 /**
  * Subscribe to Booths List
  */
-export function subscribeBooths(callback: (booths: Booth[]) => void): Unsubscribe {
-  if (db && isFirebaseConfigured) {
-    try {
-      const boothsRef = collection(db, 'booths');
-      const q = query(boothsRef, orderBy('order', 'asc'));
-      
-      const unsubscribe = onSnapshot(
-        q,
-        (snapshot) => {
-          if (snapshot.empty) {
-            // Seed defaults if empty
-            ensureDefaultBooths();
-            callback(DEFAULT_BOOTHS);
-          } else {
-            const list: Booth[] = [];
-            snapshot.forEach((docSnap) => {
-              list.push({ ...docSnap.data(), id: docSnap.id } as Booth);
-            });
-            list.sort((a, b) => (a.order || 0) - (b.order || 0));
-            localStore.setBooths(list);
-            callback(list);
-          }
-        },
-        (error) => {
-          console.warn('[Firebase] subscribeBooths error, fallback to local:', error);
-          callback(localStore.getBooths());
-        }
-      );
-      return unsubscribe;
-    } catch (e) {
-      console.warn('[Firebase] subscribeBooths setup error:', e);
-    }
-  }
+export function subscribeBooths(callback: (booths: Booth[]) => void): () => void {
+  connectSSE();
 
-  // Local fallback with event listener
-  const handler = () => callback(localStore.getBooths());
-  window.addEventListener('kfc_booths_updated', handler);
+  const handleUpdate = () => {
+    callback(localStore.getBooths());
+  };
+
+  window.addEventListener('kfc_booths_updated', handleUpdate);
   callback(localStore.getBooths());
-  return () => window.removeEventListener('kfc_booths_updated', handler);
+
+  // Also fetch immediately
+  fetch('/api/state')
+    .then((r) => r.json())
+    .then((data) => {
+      if (data && data.booths) {
+        localStore.setBooths(data.booths);
+        callback(data.booths);
+      }
+    })
+    .catch(() => {});
+
+  return () => {
+    window.removeEventListener('kfc_booths_updated', handleUpdate);
+  };
 }
 
 /**
  * Fetch current booths once
  */
 export async function getBooths(): Promise<Booth[]> {
-  if (db && isFirebaseConfigured) {
-    try {
-      const boothsRef = collection(db, 'booths');
-      const q = query(boothsRef, orderBy('order', 'asc'));
-      const snapshot = await getDocs(q);
-      if (!snapshot.empty) {
-        const list: Booth[] = [];
-        snapshot.forEach((docSnap) => {
-          list.push({ ...docSnap.data(), id: docSnap.id } as Booth);
-        });
-        list.sort((a, b) => (a.order || 0) - (b.order || 0));
-        return list;
+  try {
+    const res = await fetch('/api/state');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.booths) {
+        localStore.setBooths(data.booths);
+        return data.booths;
       }
-    } catch (e) {
-      console.warn('[Firebase] getBooths error:', e);
     }
+  } catch {
+    // fallback
   }
   return localStore.getBooths();
 }
@@ -305,90 +307,33 @@ export async function getBooths(): Promise<Booth[]> {
 export function subscribeParticipant(
   participantId: string,
   callback: (participant: Participant | null) => void
-): Unsubscribe {
-  if (db && isFirebaseConfigured) {
-    try {
-      const partDocRef = doc(db, 'participants', participantId);
-      const unsubscribe = onSnapshot(
-        partDocRef,
-        async (docSnap) => {
-          if (docSnap.exists()) {
-            callback({ ...docSnap.data(), id: docSnap.id } as Participant);
-          } else {
-            // Auto create new participant profile
-            const newParticipant: Participant = {
-              id: participantId,
-              createdAt: Date.now(),
-              completedBooths: [],
-              progress: 0,
-              isCompleted: false,
-              completedAt: null,
-              snackClaimed: false,
-              snackClaimedAt: null,
-              lastActiveAt: Date.now(),
-            };
-            try {
-              await setDoc(partDocRef, newParticipant);
-            } catch {
-              // ignore
-            }
-            callback(newParticipant);
-          }
-        },
-        (error) => {
-          console.warn('[Firebase] subscribeParticipant error:', error);
-          const all = localStore.getParticipants();
-          let current = all.find((p) => p.id === participantId);
-          if (!current) {
-            current = {
-              id: participantId,
-              createdAt: Date.now(),
-              completedBooths: [],
-              progress: 0,
-              isCompleted: false,
-              completedAt: null,
-              snackClaimed: false,
-              snackClaimedAt: null,
-              lastActiveAt: Date.now(),
-            };
-            all.push(current);
-            localStore.setParticipants(all);
-          }
-          callback(current);
-        }
-      );
-      return unsubscribe;
-    } catch (e) {
-      console.warn('[Firebase] subscribeParticipant setup error:', e);
-    }
-  }
+): () => void {
+  connectSSE();
 
-  // Local fallback
-  const syncLocal = () => {
+  const sync = () => {
     const all = localStore.getParticipants();
-    let current = all.find((p) => p.id === participantId);
-    if (!current) {
-      current = {
-        id: participantId,
-        createdAt: Date.now(),
-        completedBooths: [],
-        progress: 0,
-        isCompleted: false,
-        completedAt: null,
-        snackClaimed: false,
-        snackClaimedAt: null,
-        lastActiveAt: Date.now(),
-      };
-      all.push(current);
-      localStore.setParticipants(all);
+    const current = all.find((p) => p.id === participantId);
+    if (current) {
+      callback(current);
+    } else {
+      // Register with server
+      fetch(`/api/participants/${participantId}`)
+        .then((r) => r.json())
+        .then((p) => {
+          if (p) callback(p);
+        })
+        .catch(() => {
+          callback(null);
+        });
     }
-    callback(current);
   };
 
-  const handler = () => syncLocal();
-  window.addEventListener('kfc_participants_updated', handler);
-  syncLocal();
-  return () => window.removeEventListener('kfc_participants_updated', handler);
+  window.addEventListener('kfc_participants_updated', sync);
+  sync();
+
+  return () => {
+    window.removeEventListener('kfc_participants_updated', sync);
+  };
 }
 
 /**
@@ -398,55 +343,54 @@ export async function verifyAndCompleteBooth(
   participantId: string,
   scannedRaw: string
 ): Promise<ScanResult> {
-  const token = parseScannedQrToken(scannedRaw);
-  if (!token) {
-    return {
-      status: 'invalid',
-      message: '유효하지 않은 QR 코드 형식입니다.',
-    };
+  try {
+    const res = await fetch('/api/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ participantId, scannedRaw }),
+    });
+
+    if (res.ok) {
+      const result: ScanResult & { participant?: Participant } = await res.json();
+      if (result.participant) {
+        const all = localStore.getParticipants();
+        const idx = all.findIndex((p) => p.id === participantId);
+        if (idx >= 0) all[idx] = result.participant;
+        else all.push(result.participant);
+        localStore.setParticipants(all);
+      }
+      return result;
+    }
+  } catch (err) {
+    console.error('Verify scan API error:', err);
   }
 
-  // 1. Get all booths
-  const booths = await getBooths();
-  const activeBooths = booths.filter((b) => b.active);
-  
-  // Find matching booth by qrToken
-  const matchedBooth = activeBooths.find((b) => b.qrToken.trim().toUpperCase() === token.trim().toUpperCase());
+  // Offline / fallback processing
+  const token = parseScannedQrToken(scannedRaw);
+  const booths = localStore.getBooths();
+  const matchedBooth = booths.find(
+    (b) => b.qrToken.trim().toUpperCase() === token.toUpperCase()
+  );
 
   if (!matchedBooth) {
-    // Check if it belongs to an inactive booth
-    const inactiveMatch = booths.find((b) => b.qrToken.trim().toUpperCase() === token.trim().toUpperCase());
-    if (inactiveMatch) {
-      return {
-        status: 'inactive',
-        message: `현재 '${inactiveMatch.name}' 부스는 일시 중단 상태입니다.`,
-        booth: inactiveMatch,
-      };
-    }
     return {
       status: 'invalid',
       message: 'K.F.C. 축제 부스 QR 코드가 아니거나 유효하지 않은 코드입니다.',
     };
   }
 
-  // 2. Load participant data
-  let participant: Participant | null = null;
-
-  if (db && isFirebaseConfigured) {
-    try {
-      const partDocRef = doc(db, 'participants', participantId);
-      const snap = await getDoc(partDocRef);
-      if (snap.exists()) {
-        participant = { ...snap.data(), id: snap.id } as Participant;
-      }
-    } catch (e) {
-      console.warn('[Firebase] verify participant read error:', e);
-    }
+  if (!matchedBooth.active) {
+    return {
+      status: 'inactive',
+      message: `현재 '${matchedBooth.name}' 부스는 일시 중단 상태입니다.`,
+      booth: matchedBooth,
+    };
   }
 
+  const all = localStore.getParticipants();
+  let participant = all.find((p) => p.id === participantId);
   if (!participant) {
-    const all = localStore.getParticipants();
-    participant = all.find((p) => p.id === participantId) || {
+    participant = {
       id: participantId,
       createdAt: Date.now(),
       completedBooths: [],
@@ -457,9 +401,9 @@ export async function verifyAndCompleteBooth(
       snackClaimedAt: null,
       lastActiveAt: Date.now(),
     };
+    all.push(participant);
   }
 
-  // 3. Check if already completed
   if (participant.completedBooths.includes(matchedBooth.id)) {
     return {
       status: 'already_completed',
@@ -469,109 +413,128 @@ export async function verifyAndCompleteBooth(
     };
   }
 
-  // 4. Record new completion
-  const updatedCompletedBooths = [...participant.completedBooths, matchedBooth.id];
-  
-  // Calculate progress against active booths
-  const totalActiveCount = Math.max(activeBooths.length, 1);
-  const completedActiveCount = activeBooths.filter((b) => updatedCompletedBooths.includes(b.id)).length;
-  
-  const isAllDone = completedActiveCount >= totalActiveCount;
-  const progressPercent = Math.min(100, Math.round((completedActiveCount / totalActiveCount) * 100));
-
-  const updatedParticipant: Participant = {
-    ...participant,
-    completedBooths: updatedCompletedBooths,
-    progress: progressPercent,
-    isCompleted: isAllDone,
-    completedAt: isAllDone ? (participant.completedAt || Date.now()) : null,
-    lastActiveAt: Date.now(),
-  };
-
-  // 5. Save to Firestore and LocalStore
-  if (db && isFirebaseConfigured) {
-    try {
-      const partDocRef = doc(db, 'participants', participantId);
-      await setDoc(partDocRef, updatedParticipant, { merge: true });
-    } catch (e) {
-      console.warn('[Firebase] verify participant save error:', e);
-    }
-  }
-
-  // Always update local cache
-  const allParts = localStore.getParticipants();
-  const index = allParts.findIndex((p) => p.id === participantId);
-  if (index >= 0) {
-    allParts[index] = updatedParticipant;
-  } else {
-    allParts.push(updatedParticipant);
-  }
-  localStore.setParticipants(allParts);
+  participant.completedBooths.push(matchedBooth.id);
+  const activeBooths = booths.filter((b) => b.active);
+  const isDone = participant.completedBooths.length >= activeBooths.length;
+  participant.progress = Math.min(100, Math.round((participant.completedBooths.length / activeBooths.length) * 100));
+  participant.isCompleted = isDone;
+  if (isDone && !participant.completedAt) participant.completedAt = Date.now();
+  localStore.setParticipants(all);
 
   return {
     status: 'success',
     message: `'${matchedBooth.name}' 체험을 완료했습니다!`,
     booth: matchedBooth,
-    allCompleted: isAllDone,
+    allCompleted: isDone,
   };
 }
 
 /**
- * Subscribe to All Participants (Admin Live Dashboard & Finisher Feed)
+ * Staff Snack QR Code Redemption
+ * (스태프가 방문객의 간식 QR 코드를 스캔했을 때 즉시 사용 완료 처리 및 중복 수령 방지 검증)
  */
-export function subscribeParticipants(callback: (participants: Participant[]) => void): Unsubscribe {
-  if (db && isFirebaseConfigured) {
-    try {
-      const partRef = collection(db, 'participants');
-      const unsubscribe = onSnapshot(
-        partRef,
-        (snapshot) => {
-          const list: Participant[] = [];
-          snapshot.forEach((docSnap) => {
-            list.push({ ...docSnap.data(), id: docSnap.id } as Participant);
-          });
-          // Sort recent active first
-          list.sort((a, b) => (b.lastActiveAt || b.createdAt || 0) - (a.lastActiveAt || a.createdAt || 0));
-          localStore.setParticipants(list);
-          callback(list);
-        },
-        (error) => {
-          console.warn('[Firebase] subscribeParticipants error:', error);
-          callback(localStore.getParticipants());
-        }
-      );
-      return unsubscribe;
-    } catch (e) {
-      console.warn('[Firebase] subscribeParticipants setup error:', e);
+export async function redeemSnackQR(qrDataOrParticipantId: string): Promise<SnackRedeemResult> {
+  try {
+    const res = await fetch('/api/snack/redeem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ qrData: qrDataOrParticipantId }),
+    });
+
+    if (res.ok) {
+      const data: SnackRedeemResult = await res.json();
+      if (data.participant) {
+        const all = localStore.getParticipants();
+        const idx = all.findIndex((p) => p.id === data.participant!.id);
+        if (idx >= 0) all[idx] = data.participant;
+        else all.push(data.participant);
+        localStore.setParticipants(all);
+      }
+      return data;
     }
+  } catch (err) {
+    console.error('Redeem snack API error:', err);
   }
 
-  const handler = () => callback(localStore.getParticipants());
-  window.addEventListener('kfc_participants_updated', handler);
+  // Fallback
+  let id = qrDataOrParticipantId;
+  if (id.startsWith('KFC-SNACK:')) id = id.replace('KFC-SNACK:', '').trim();
+  const all = localStore.getParticipants();
+  const participant = all.find((p) => p.id === id);
+
+  if (!participant) {
+    return { success: false, message: '참가자 정보를 찾을 수 없습니다.' };
+  }
+
+  if (participant.snackClaimed) {
+    return {
+      success: false,
+      alreadyClaimed: true,
+      claimedAt: participant.snackClaimedAt,
+      message: '⚠️ 이미 수령 완료된 간식 교환권입니다! (중복 수령 불가)',
+      participant,
+    };
+  }
+
+  participant.snackClaimed = true;
+  participant.snackClaimedAt = Date.now();
+  localStore.setParticipants(all);
+
+  return {
+    success: true,
+    alreadyClaimed: false,
+    message: `🎉 [${participant.id}] 간식 지급 완료 처리되었습니다!`,
+    participant,
+  };
+}
+
+/**
+ * Subscribe to All Participants (Admin Live Dashboard)
+ */
+export function subscribeParticipants(callback: (participants: Participant[]) => void): () => void {
+  connectSSE();
+
+  const sync = () => {
+    callback(localStore.getParticipants());
+  };
+
+  window.addEventListener('kfc_participants_updated', sync);
   callback(localStore.getParticipants());
-  return () => window.removeEventListener('kfc_participants_updated', handler);
+
+  // Fetch initial
+  fetch('/api/state')
+    .then((r) => r.json())
+    .then((data) => {
+      if (data && data.participants) {
+        localStore.setParticipants(data.participants);
+        callback(data.participants);
+      }
+    })
+    .catch(() => {});
+
+  return () => {
+    window.removeEventListener('kfc_participants_updated', sync);
+  };
 }
 
 /**
  * Admin: Add or update Booth
  */
 export async function saveBooth(booth: Booth): Promise<void> {
-  if (db && isFirebaseConfigured) {
-    try {
-      await setDoc(doc(db, 'booths', booth.id), booth, { merge: true });
-    } catch (e) {
-      console.warn('[Firebase] saveBooth error:', e);
-    }
+  try {
+    await fetch('/api/booths', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(booth),
+    });
+  } catch {
+    // ignore
   }
 
-  // Update local
   const booths = localStore.getBooths();
   const idx = booths.findIndex((b) => b.id === booth.id);
-  if (idx >= 0) {
-    booths[idx] = booth;
-  } else {
-    booths.push(booth);
-  }
+  if (idx >= 0) booths[idx] = booth;
+  else booths.push(booth);
   booths.sort((a, b) => (a.order || 0) - (b.order || 0));
   localStore.setBooths(booths);
 }
@@ -580,12 +543,10 @@ export async function saveBooth(booth: Booth): Promise<void> {
  * Admin: Delete Booth
  */
 export async function deleteBooth(boothId: string): Promise<void> {
-  if (db && isFirebaseConfigured) {
-    try {
-      await deleteDoc(doc(db, 'booths', boothId));
-    } catch (e) {
-      console.warn('[Firebase] deleteBooth error:', e);
-    }
+  try {
+    await fetch(`/api/booths/${boothId}`, { method: 'DELETE' });
+  } catch {
+    // ignore
   }
 
   const booths = localStore.getBooths().filter((b) => b.id !== boothId);
@@ -596,18 +557,23 @@ export async function deleteBooth(boothId: string): Promise<void> {
  * Admin: Regenerate QR Token for a Booth
  */
 export async function regenerateBoothToken(boothId: string): Promise<string> {
+  try {
+    const res = await fetch(`/api/booths/${boothId}/regen-token`, { method: 'POST' });
+    if (res.ok) {
+      const data = await res.json();
+      return data.qrToken;
+    }
+  } catch {
+    // ignore
+  }
+
   const booths = localStore.getBooths();
   const booth = booths.find((b) => b.id === boothId);
   if (!booth) throw new Error('부스를 찾을 수 없습니다.');
-
   const prefix = booth.name.includes('로봇') ? 'KFC-ROBOT' : booth.name.includes('AI') ? 'KFC-AI' : 'KFC-BOOTH';
   const newToken = generateBoothToken(prefix);
-  const updatedBooth: Booth = {
-    ...booth,
-    qrToken: newToken,
-  };
-
-  await saveBooth(updatedBooth);
+  booth.qrToken = newToken;
+  localStore.setBooths(booths);
   return newToken;
 }
 
@@ -615,28 +581,26 @@ export async function regenerateBoothToken(boothId: string): Promise<string> {
  * Admin: Reset a participant's progress
  */
 export async function resetParticipant(participantId: string): Promise<void> {
-  const updated: Partial<Participant> = {
-    completedBooths: [],
-    progress: 0,
-    isCompleted: false,
-    completedAt: null,
-    snackClaimed: false,
-    snackClaimedAt: null,
-    lastActiveAt: Date.now(),
-  };
-
-  if (db && isFirebaseConfigured) {
-    try {
-      await updateDoc(doc(db, 'participants', participantId), updated);
-    } catch (e) {
-      console.warn('[Firebase] resetParticipant error:', e);
-    }
+  try {
+    await fetch(`/api/participants/${participantId}/reset`, { method: 'POST' });
+  } catch {
+    // ignore
   }
 
   const all = localStore.getParticipants();
   const idx = all.findIndex((p) => p.id === participantId);
   if (idx >= 0) {
-    all[idx] = { ...all[idx], ...updated };
+    all[idx] = {
+      id: participantId,
+      createdAt: Date.now(),
+      completedBooths: [],
+      progress: 0,
+      isCompleted: false,
+      completedAt: null,
+      snackClaimed: false,
+      snackClaimedAt: null,
+      lastActiveAt: Date.now(),
+    };
     localStore.setParticipants(all);
   }
 }
@@ -645,41 +609,29 @@ export async function resetParticipant(participantId: string): Promise<void> {
  * Admin: Toggle Snack Claimed state
  */
 export async function toggleSnackClaimed(participantId: string, currentStatus: boolean): Promise<void> {
-  const newStatus = !currentStatus;
-  const updateData = {
-    snackClaimed: newStatus,
-    snackClaimedAt: newStatus ? Date.now() : null,
-  };
-
-  if (db && isFirebaseConfigured) {
-    try {
-      await updateDoc(doc(db, 'participants', participantId), updateData);
-    } catch (e) {
-      console.warn('[Firebase] toggleSnackClaimed error:', e);
-    }
+  try {
+    await fetch(`/api/participants/${participantId}/toggle-snack`, { method: 'POST' });
+  } catch {
+    // ignore
   }
 
   const all = localStore.getParticipants();
   const idx = all.findIndex((p) => p.id === participantId);
   if (idx >= 0) {
-    all[idx] = { ...all[idx], ...updateData };
+    all[idx].snackClaimed = !currentStatus;
+    all[idx].snackClaimedAt = !currentStatus ? Date.now() : null;
     localStore.setParticipants(all);
   }
 }
 
 /**
- * Admin: Reset all participants (for new festival day)
+ * Admin: Reset all participants
  */
 export async function resetAllParticipants(): Promise<void> {
-  if (db && isFirebaseConfigured) {
-    try {
-      const snap = await getDocs(collection(db, 'participants'));
-      for (const d of snap.docs) {
-        await deleteDoc(d.ref);
-      }
-    } catch (e) {
-      console.warn('[Firebase] resetAllParticipants error:', e);
-    }
+  try {
+    await fetch('/api/participants/reset-all', { method: 'POST' });
+  } catch {
+    // ignore
   }
   localStore.setParticipants([]);
 }

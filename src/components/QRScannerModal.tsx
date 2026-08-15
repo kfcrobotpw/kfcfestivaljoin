@@ -11,10 +11,12 @@ import {
   Keyboard,
   ArrowRight,
   WifiOff,
+  Gift,
+  Lock,
 } from 'lucide-react';
-import { verifyAndCompleteBooth } from '../services/firebaseService';
+import { verifyAndCompleteBooth, redeemSnackQR } from '../services/firebaseService';
 import { soundService } from '../services/soundService';
-import { ScanResult, Booth } from '../types';
+import { ScanResult, Booth, SnackRedeemResult } from '../types';
 import confetti from 'canvas-confetti';
 
 interface QRScannerModalProps {
@@ -38,6 +40,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [snackResult, setSnackResult] = useState<SnackRedeemResult | null>(null);
   const [manualCode, setManualCode] = useState('');
   const [showManualInput, setShowManualInput] = useState(false);
   const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
@@ -46,7 +49,6 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
   const isScanningRef = useRef<boolean>(false);
   const lastScannedTimeRef = useRef<number>(0);
 
-  // Trigger Confetti helper
   const fireConfetti = () => {
     try {
       confetti({
@@ -60,12 +62,11 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
     }
   };
 
-  // Start Scanner
   const startScanner = async () => {
     setPermissionError(null);
     setScanResult(null);
+    setSnackResult(null);
 
-    // Give DOM time to mount #qr-reader-box
     setTimeout(async () => {
       const element = document.getElementById('qr-reader-box');
       if (!element) return;
@@ -92,9 +93,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
           (decodedText) => {
             handleScanSuccess(decodedText);
           },
-          (errorMessage) => {
-            // Frame scan failure is normal during scanning search
-          }
+          () => {}
         );
 
         isScanningRef.current = true;
@@ -105,14 +104,13 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
         if (errMsg.includes('NotAllowedError') || errMsg.includes('Permission denied')) {
           setPermissionError('카메라 권한이 거부되었습니다. 브라우저 설정에서 카메라 권한을 허용해주세요.');
         } else {
-          setPermissionError('카메라 접근 권한이 필요합니다. 카메라가 다른 앱에서 사용 중인지 확인해주세요.');
+          setPermissionError('카메라 접근 권한이 필요합니다.');
         }
         setScannerActive(false);
       }
     }, 150);
   };
 
-  // Stop Scanner
   const stopScanner = async () => {
     if (scannerRef.current && isScanningRef.current) {
       try {
@@ -131,6 +129,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
     } else {
       stopScanner();
       setScanResult(null);
+      setSnackResult(null);
       setPermissionError(null);
       setShowManualInput(false);
     }
@@ -140,16 +139,32 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
     };
   }, [isOpen, cameraFacing]);
 
-  // Handle scanned decoded text
   const handleScanSuccess = async (decodedText: string) => {
     const now = Date.now();
-    // Debounce fast scans within 2 seconds
-    if (now - lastScannedTimeRef.current < 2000 || isProcessing) {
-      return;
-    }
+    if (now - lastScannedTimeRef.current < 2000 || isProcessing) return;
     lastScannedTimeRef.current = now;
     setIsProcessing(true);
 
+    // Case 1: Snack Voucher QR scanned (e.g. KFC-SNACK:participant_...)
+    if (decodedText.startsWith('KFC-SNACK:')) {
+      try {
+        const res = await redeemSnackQR(decodedText);
+        setSnackResult(res);
+        if (res.success) {
+          soundService.playSuccess();
+          fireConfetti();
+        } else {
+          soundService.playError();
+        }
+      } catch {
+        soundService.playError();
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    // Case 2: Standard Booth QR scanned
     try {
       const result = await verifyAndCompleteBooth(participantId, decodedText);
       setScanResult(result);
@@ -180,10 +195,13 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
     }
   };
 
-  // Handle Manual Code Submit
   const handleManualSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!manualCode.trim() || isProcessing) return;
+
+    if (manualCode.trim().startsWith('KFC-SNACK:')) {
+      return handleScanSuccess(manualCode.trim());
+    }
 
     setIsProcessing(true);
     try {
@@ -216,7 +234,6 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
     }
   };
 
-  // Toggle Camera Facing
   const toggleCameraFacing = () => {
     setCameraFacing((prev) => (prev === 'environment' ? 'user' : 'environment'));
   };
@@ -236,8 +253,8 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
               <Camera className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-100">부스 QR 코드 스캔</h2>
-              <p className="text-[11px] text-slate-400">체험 부스의 QR 코드를 비춰주세요</p>
+              <h2 className="text-sm font-bold text-slate-100">QR 코드 스캔</h2>
+              <p className="text-[11px] text-slate-400">체험 부스 또는 간식 교환권 QR 코드를 비춰주세요</p>
             </div>
           </div>
           <button
@@ -251,8 +268,56 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
 
         {/* Content Area */}
         <div className="p-4 flex-1 overflow-y-auto flex flex-col items-center justify-center">
-          {/* Result Dialog State if scanned */}
-          {scanResult ? (
+          {/* Snack Redeem Result */}
+          {snackResult ? (
+            <div className="w-full py-4 px-2 flex flex-col items-center text-center animate-in zoom-in-95 duration-200">
+              {snackResult.success ? (
+                <>
+                  <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center text-emerald-400 mb-3 shadow-lg shadow-emerald-500/25 animate-bounce">
+                    <Gift className="w-8 h-8" />
+                  </div>
+                  <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 mb-2">
+                    간식 교환 완료
+                  </span>
+                  <h3 className="text-xl font-black text-slate-100 mb-1">🎁 간식 지급 처리 완료!</h3>
+                  <p className="text-xs text-slate-300 mb-4">{snackResult.message}</p>
+                </>
+              ) : (
+                <>
+                  <div className="w-16 h-16 rounded-2xl bg-rose-500/20 border-2 border-rose-500 flex items-center justify-center text-rose-400 mb-3">
+                    <Lock className="w-8 h-8" />
+                  </div>
+                  <span className="text-xs font-bold px-3 py-1 rounded-full bg-rose-950 text-rose-300 border border-rose-800 mb-2">
+                    {snackResult.alreadyClaimed ? '중복 수령 불가' : '수령 불가'}
+                  </span>
+                  <h3 className="text-xl font-black text-rose-200 mb-1">
+                    {snackResult.alreadyClaimed ? '⚠️ 이미 사용된 교환권입니다' : '확인 실패'}
+                  </h3>
+                  <p className="text-xs text-slate-300 mb-4">{snackResult.message}</p>
+                </>
+              )}
+
+              <div className="flex gap-2 w-full mt-3">
+                <button
+                  onClick={() => {
+                    setSnackResult(null);
+                    startScanner();
+                  }}
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>다시 스캔하기</span>
+                </button>
+                <button
+                  onClick={onClose}
+                  className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs transition-colors"
+                >
+                  확인
+                </button>
+              </div>
+            </div>
+          ) : scanResult ? (
+            /* Booth Result */
             <div className="w-full py-4 px-2 flex flex-col items-center text-center animate-in zoom-in-95 duration-200">
               {scanResult.status === 'success' && (
                 <>
@@ -338,7 +403,6 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
                 </>
               )}
 
-              {/* Action Buttons */}
               <div className="flex gap-2 w-full mt-3">
                 <button
                   onClick={() => {
@@ -425,7 +489,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
                       type="text"
                       value={manualCode}
                       onChange={(e) => setManualCode(e.target.value)}
-                      placeholder="예: KFC-ROBOT-A7F29"
+                      placeholder="예: KFC-ROBOT-A7F29 또는 KFC-SNACK:..."
                       className="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 uppercase font-mono"
                       id="input-manual-token"
                     />

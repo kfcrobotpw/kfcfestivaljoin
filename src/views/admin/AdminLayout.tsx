@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   LayoutDashboard,
   Award,
@@ -8,9 +8,10 @@ import {
   Settings,
   LogOut,
   Eye,
-  Radio,
+  Gift,
+  Sparkles,
 } from 'lucide-react';
-import { isFirebaseConfigured } from '../../lib/firebase';
+import { StaffSnackScannerModal } from '../../components/StaffSnackScannerModal';
 
 interface AdminLayoutProps {
   currentTab: string;
@@ -27,6 +28,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   onViewAsVisitor,
   children,
 }) => {
+  const [showStaffScanner, setShowStaffScanner] = useState(false);
+
   const navItems = [
     { id: 'dashboard', label: '대시보드', icon: LayoutDashboard },
     { id: 'completed', label: '완료자 목록', icon: CheckCircle },
@@ -38,7 +41,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
   return (
     <div className="min-h-[calc(100vh-4rem)] max-w-6xl mx-auto px-4 py-6 pb-24">
-      {/* Top Banner with Realtime Status */}
+      {/* Top Banner with Realtime Status & Staff Snack Scan Button */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-slate-900 border border-slate-800">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 flex items-center justify-center font-black">
@@ -59,21 +62,32 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Quick Staff Snack QR Scanner Button for phones */}
+          <button
+            onClick={() => setShowStaffScanner(true)}
+            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 text-xs font-black flex items-center gap-1.5 shadow-lg shadow-amber-500/25 active:scale-95 transition-all"
+            id="btn-admin-open-snack-scanner"
+          >
+            <Gift className="w-4 h-4" />
+            <span>스태프 간식 QR 스캔</span>
+          </button>
+
           <button
             onClick={onViewAsVisitor}
-            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-medium flex items-center gap-1.5 border border-slate-700 transition-colors"
+            className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-medium flex items-center gap-1.5 border border-slate-700 transition-colors"
             id="btn-admin-preview-visitor"
           >
             <Eye className="w-3.5 h-3.5 text-cyan-400" />
-            <span>방문객 화면 보기</span>
+            <span className="hidden sm:inline">방문객 화면</span>
           </button>
+
           <button
             onClick={onLogout}
-            className="px-3 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-xs font-medium flex items-center gap-1.5 border border-rose-800/50 transition-colors"
+            className="px-3 py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-xs font-medium flex items-center gap-1.5 border border-rose-800/50 transition-colors"
             id="btn-admin-logout"
           >
             <LogOut className="w-3.5 h-3.5" />
-            <span>로그아웃</span>
+            <span className="hidden sm:inline">로그아웃</span>
           </button>
         </div>
       </div>
@@ -103,6 +117,12 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
       {/* Main Content Pane */}
       <main className="space-y-6">{children}</main>
+
+      {/* Staff Snack Scanner Modal */}
+      <StaffSnackScannerModal
+        isOpen={showStaffScanner}
+        onClose={() => setShowStaffScanner(false)}
+      />
     </div>
   );
 };

@@ -11,7 +11,7 @@ export const AdminLoginView: React.FC<AdminLoginViewProps> = ({
   onLoginSuccess,
   onNavigateHome,
 }) => {
-  const [username, setUsername] = useState('admin');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -117,7 +117,6 @@ export const AdminLoginView: React.FC<AdminLoginViewProps> = ({
           >
             ← 방문객 화면으로
           </button>
-          <span className="text-[11px] text-slate-500 font-mono">기본: admin / 1234</span>
         </div>
       </div>
     </div>

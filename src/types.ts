@@ -42,6 +42,16 @@ export interface ScanResult {
   allCompleted?: boolean;
 }
 
+export interface SnackRedeemResult {
+  success: boolean;
+  message: string;
+  alreadyClaimed?: boolean;
+  claimedAtStr?: string;
+  claimedAt?: number | null;
+  isIncomplete?: boolean;
+  participant?: Participant;
+}
+
 export interface AdminStats {
   totalParticipants: number;
   completedParticipants: number;
