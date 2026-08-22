@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bot, Shield, QrCode, Home, Sparkles, Camera } from 'lucide-react';
 import { isFirebaseConfigured } from '../lib/firebase';
+import { KFCLogo } from './KFCLogo';
 
 interface NavbarProps {
   currentView: string;
@@ -28,9 +29,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           className="flex items-center gap-2.5 text-left focus:outline-none group"
           id="btn-brand-home"
         >
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-500 p-0.5 shadow-lg shadow-cyan-500/20 flex items-center justify-center">
-            <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center group-hover:bg-slate-900 transition-colors">
-              <Bot className="w-5 h-5 text-cyan-400" />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-500 p-0.5 shadow-lg shadow-cyan-500/20 flex items-center justify-center overflow-hidden">
+            <div className="w-full h-full bg-white rounded-[9px] flex items-center justify-center p-0.5 transition-transform group-hover:scale-105">
+              <KFCLogo className="w-full h-full" />
             </div>
           </div>
           <div>
@@ -64,9 +65,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
 
               {participantId && (
-                <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-300 font-mono">
+                <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-cyan-300 font-mono font-bold">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>ID: {participantId.replace('participant_', '')}</span>
+                  <span>참가자 #{participantId.replace('participant_', '')}</span>
                 </div>
               )}
 

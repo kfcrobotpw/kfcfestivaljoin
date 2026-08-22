@@ -30,7 +30,13 @@ export const AdminCompletedView: React.FC<AdminCompletedViewProps> = ({
     .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
 
   const filtered = completedList.filter((p) => {
-    const matches = p.id.toLowerCase().includes(searchTerm.toLowerCase());
+    const term = searchTerm.toLowerCase().trim();
+    const cleanNum = p.id.replace('participant_', '');
+    const matches =
+      p.id.toLowerCase().includes(term) ||
+      cleanNum.includes(term) ||
+      `#${cleanNum}`.includes(term) ||
+      `참가자 #${cleanNum}`.toLowerCase().includes(term);
     if (!matches) return false;
     if (snackFilter === 'claimed') return p.snackClaimed;
     if (snackFilter === 'unclaimed') return !p.snackClaimed;
@@ -156,7 +162,9 @@ export const AdminCompletedView: React.FC<AdminCompletedViewProps> = ({
 
                       {/* Participant ID */}
                       <td className="py-3.5 px-4">
-                        <span className="font-mono font-bold text-slate-100 text-sm">{p.id}</span>
+                        <span className="font-mono font-bold text-slate-100 text-sm">
+                          #{p.id.replace('participant_', '')}
+                        </span>
                       </td>
 
                       {/* Completed Time */}

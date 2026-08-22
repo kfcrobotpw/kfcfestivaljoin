@@ -14,6 +14,7 @@ import {
   Camera,
   RefreshCw,
 } from 'lucide-react';
+import { KFCLogo } from '../components/KFCLogo';
 import { Booth, Participant, FestivalSettings } from '../types';
 
 interface VisitorHomeViewProps {
@@ -70,11 +71,26 @@ export const VisitorHomeView: React.FC<VisitorHomeViewProps> = ({
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-64 bg-cyan-500/15 blur-[100px] rounded-full pointer-events-none" />
         <div className="absolute top-20 right-1/4 w-48 h-48 bg-blue-500/10 blur-[80px] rounded-full pointer-events-none" />
 
-        <div className="relative max-w-xl mx-auto">
+        <div className="relative max-w-xl mx-auto flex flex-col items-center">
+          {/* Main Official KFC Logo */}
+          <div className="mb-5 relative group">
+            <div className="w-44 h-44 sm:w-52 sm:h-52 md:w-60 md:h-60 rounded-3xl bg-white p-2.5 shadow-2xl shadow-cyan-500/10 border border-slate-200 flex items-center justify-center transition-transform duration-300 group-hover:scale-[1.02]">
+              <KFCLogo className="w-full h-full" />
+            </div>
+          </div>
+
           {/* Badge */}
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-950/70 border border-cyan-800/60 text-cyan-400 text-xs font-semibold mb-3 shadow-inner">
-            <Bot className="w-3.5 h-3.5" />
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-cyan-950/70 border border-cyan-800/60 text-cyan-400 text-xs font-semibold mb-3 shadow-inner">
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
             <span>{settings.clubName}</span>
+            {participant?.id && (
+              <>
+                <span className="text-cyan-700">•</span>
+                <span className="font-mono text-cyan-300 font-bold">
+                  참가자 #{participant.id.replace('participant_', '')}
+                </span>
+              </>
+            )}
           </div>
 
           {/* Main Title */}

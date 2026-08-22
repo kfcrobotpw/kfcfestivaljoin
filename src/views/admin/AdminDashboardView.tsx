@@ -53,8 +53,9 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     .slice(0, 8);
 
   const exportCSV = () => {
-    const headers = ['참가자 ID', '진행률(%)', '완료여부', '완료시간', '간식수령여부', '등록일시'];
+    const headers = ['참가자 번호', '참가자 ID', '진행률(%)', '완료여부', '완료시간', '간식수령여부', '등록일시'];
     const rows = participants.map((p) => [
+      `#${p.id.replace('participant_', '')}`,
       p.id,
       p.progress,
       p.isCompleted ? '완료' : '진행중',
@@ -239,7 +240,9 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                       #{idx + 1}
                     </span>
                     <div>
-                      <p className="font-mono font-bold text-slate-200">{p.id}</p>
+                      <p className="font-mono font-bold text-slate-200">
+                        참가자 #{p.id.replace('participant_', '')}
+                      </p>
                       <p className="text-[10px] text-slate-500">
                         {p.completedAt
                           ? new Date(p.completedAt).toLocaleTimeString('ko-KR')

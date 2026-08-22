@@ -12,6 +12,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { StaffSnackScannerModal } from '../../components/StaffSnackScannerModal';
+import { KFCLogo } from '../../components/KFCLogo';
 
 interface AdminLayoutProps {
   currentTab: string;
@@ -44,8 +45,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
       {/* Top Banner with Realtime Status & Staff Snack Scan Button */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-slate-900 border border-slate-800">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 flex items-center justify-center font-black">
-            KFC
+          <div className="w-11 h-11 rounded-xl bg-white p-0.5 shadow-lg border border-cyan-500/40 flex items-center justify-center overflow-hidden shrink-0">
+            <KFCLogo className="w-full h-full" />
           </div>
           <div>
             <div className="flex items-center gap-2">

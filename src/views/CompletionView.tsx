@@ -17,7 +17,8 @@ import {
 } from 'lucide-react';
 import { Participant, FestivalSettings, Booth } from '../types';
 import { soundService } from '../services/soundService';
-import { toggleSnackClaimed } from '../services/firebaseService';
+import { markSnackClaimed } from '../services/firebaseService';
+import { KFCLogo } from '../components/KFCLogo';
 
 interface CompletionViewProps {
   participant: Participant | null;
@@ -101,11 +102,12 @@ export const CompletionView: React.FC<CompletionViewProps> = ({
       })
     : null;
 
-  const handleToggleClaim = async () => {
-    if (!participant) return;
+  // Manual snack claim handler (One-way only: cannot be reverted to unclaimed by individual)
+  const handleManualClaim = async () => {
+    if (!participant || participant.snackClaimed) return;
     setIsClaiming(true);
     try {
-      await toggleSnackClaimed(participant.id, !!participant.snackClaimed);
+      await markSnackClaimed(participant.id);
       soundService.playSuccess();
     } catch {
       soundService.playError();
@@ -225,7 +227,7 @@ export const CompletionView: React.FC<CompletionViewProps> = ({
           )}
         </div>
 
-        {/* Guidance Text */}
+        {/* Guidance Text & Staff Action */}
         {participant?.snackClaimed ? (
           <div className="mt-3 p-3 rounded-2xl bg-rose-950/40 border border-rose-800/40 text-left">
             <div className="flex items-center gap-1.5 text-rose-300 font-bold text-xs mb-1">
@@ -233,18 +235,30 @@ export const CompletionView: React.FC<CompletionViewProps> = ({
               <span>이미 간식 수령이 완료된 교환권입니다</span>
             </div>
             <p className="text-[11px] text-slate-300 leading-relaxed">
-              본 교환권은 1회용으로 이미 간식을 수령하셨습니다. 중복 수령 및 재줄서기는 불가능합니다.
+              본 교환권은 1회용으로 이미 간식을 수령하셨습니다. 중복 수령 방지를 위해 개인 기기에서는 지급 전 상태로 되돌릴 수 없습니다.
             </p>
           </div>
         ) : (
-          <div className="mt-3 p-3 rounded-2xl bg-amber-950/40 border border-amber-800/40 text-left">
-            <div className="flex items-center gap-1.5 text-amber-300 font-bold text-xs mb-1">
+          <div className="mt-3 p-3 rounded-2xl bg-amber-950/40 border border-amber-800/40 text-left space-y-2.5">
+            <div className="flex items-center gap-1.5 text-amber-300 font-bold text-xs">
               <Sparkles className="w-4 h-4 flex-shrink-0" />
               <span>동아리 부스 운영진에게 이 QR 코드를 보여주세요!</span>
             </div>
             <p className="text-[11px] text-slate-300 leading-relaxed">
               운영진이 스마트폰으로 위 QR 코드를 스캔하면 즉시 맛있는 간식이 지급되며 교환권이 사용 완료 처리됩니다.
             </p>
+            <div className="pt-2 border-t border-amber-800/30 flex items-center justify-between gap-2">
+              <span className="text-[10px] text-amber-300/80">스캔이 어려우신가요?</span>
+              <button
+                onClick={handleManualClaim}
+                disabled={isClaiming}
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center gap-1 shadow-md shadow-emerald-600/20 active:scale-95 transition-all disabled:opacity-50"
+                id="btn-card-manual-claim"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>{isClaiming ? '처리 중...' : '스태프 수동 확인'}</span>
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -252,12 +266,14 @@ export const CompletionView: React.FC<CompletionViewProps> = ({
       {/* Digital Stamp Certificate Card */}
       <div className="p-5 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl text-left mb-6">
         <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <Bot className="w-5 h-5 text-cyan-400" />
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-full bg-white p-0.5 shadow border border-cyan-400/50 flex items-center justify-center shrink-0">
+              <KFCLogo className="w-full h-full" />
+            </div>
             <span className="font-bold text-xs text-slate-200">K.F.C. 미션 완주 인증서</span>
           </div>
           <span className="font-mono text-xs text-cyan-400 font-semibold">
-            {participant?.id.replace('participant_', 'ID: ')}
+            참가자 #{participant?.id.replace('participant_', '')}
           </span>
         </div>
 
@@ -403,24 +419,32 @@ export const CompletionView: React.FC<CompletionViewProps> = ({
 
             {/* Staff claim manual fallback */}
             <div className="pt-2 border-t border-slate-800">
-              <p className="text-[10px] text-slate-400 mb-2">
-                운영진 비상용 수동 버튼 (스태프가 직접 전환 가능)
-              </p>
-              <button
-                onClick={handleToggleClaim}
-                disabled={isClaiming}
-                className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-                  participant?.snackClaimed
-                    ? 'bg-slate-800 text-rose-300 border border-rose-500/40 hover:bg-slate-700'
-                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30'
-                }`}
-                id="btn-staff-claim-toggle"
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span>
-                  {participant?.snackClaimed ? '간식 수령 상태 취소 (미수령으로 복원)' : '스태프 수동 확인 (간식 지급 완료)'}
-                </span>
-              </button>
+              {participant?.snackClaimed ? (
+                <div className="text-center py-1">
+                  <div className="py-2.5 px-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center gap-2 text-rose-400 text-xs font-bold">
+                    <Lock className="w-4 h-4" />
+                    <span>간식 지급 완료됨 (되돌리기 불가)</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
+                    * 중복 수령 방지를 위해 개인 기기에서는 지급 전 상태로 되돌릴 수 없습니다.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-[10px] text-slate-400 mb-2">
+                    운영진 비상용 수동 버튼 (스태프가 직접 지급 완료 처리)
+                  </p>
+                  <button
+                    onClick={handleManualClaim}
+                    disabled={isClaiming}
+                    className="w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30 transition-all active:scale-95 disabled:opacity-50"
+                    id="btn-staff-claim-manual-modal"
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>{isClaiming ? '지급 처리 중...' : '스태프 수동 확인 (간식 지급 완료)'}</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             <button

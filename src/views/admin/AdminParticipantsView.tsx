@@ -28,7 +28,13 @@ export const AdminParticipantsView: React.FC<AdminParticipantsViewProps> = ({
   const [isResetting, setIsResetting] = useState(false);
 
   const filtered = participants.filter((p) => {
-    const matchesSearch = p.id.toLowerCase().includes(searchTerm.toLowerCase());
+    const term = searchTerm.toLowerCase().trim();
+    const cleanNum = p.id.replace('participant_', '');
+    const matchesSearch =
+      p.id.toLowerCase().includes(term) ||
+      cleanNum.includes(term) ||
+      `#${cleanNum}`.includes(term) ||
+      `참가자 #${cleanNum}`.toLowerCase().includes(term);
     if (!matchesSearch) return false;
     if (statusFilter === 'completed') return p.isCompleted;
     if (statusFilter === 'in_progress') return !p.isCompleted;
@@ -135,7 +141,9 @@ export const AdminParticipantsView: React.FC<AdminParticipantsViewProps> = ({
                     <tr key={p.id} className="hover:bg-slate-800/40 transition-colors">
                       {/* ID & Registered Time */}
                       <td className="py-3.5 px-4">
-                        <span className="font-mono font-bold text-slate-100">{p.id}</span>
+                        <span className="font-mono font-bold text-slate-100 text-sm">
+                          #{p.id.replace('participant_', '')}
+                        </span>
                         <span className="block text-[10px] text-slate-500 mt-0.5">
                           {new Date(p.createdAt).toLocaleTimeString('ko-KR')}
                         </span>

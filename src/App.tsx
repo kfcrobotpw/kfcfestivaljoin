@@ -25,6 +25,7 @@ import {
 } from './types';
 import {
   getOrCreateParticipantId,
+  allocateNextParticipantId,
   subscribeBooths,
   subscribeParticipant,
   subscribeParticipants,
@@ -43,7 +44,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<string>('home'); // 'home' | 'scan' | 'complete' | 'admin' | 'admin/dashboard' | 'admin/booths' | 'admin/qr' | 'admin/participants' | 'admin/completed' | 'admin/settings'
 
   // Data State
-  const [participantId] = useState<string>(() => getOrCreateParticipantId());
+  const [participantId, setParticipantId] = useState<string>(() => getOrCreateParticipantId());
   const [participant, setParticipant] = useState<Participant | null>(null);
   const [booths, setBooths] = useState<Booth[]>([]);
   const [allParticipants, setAllParticipants] = useState<Participant[]>([]);
@@ -53,6 +54,15 @@ export default function App() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [selectedQRBooth, setSelectedQRBooth] = useState<Booth | null>(null);
+
+  // Allocate/sync sequential participant ID from Firestore on boot
+  useEffect(() => {
+    allocateNextParticipantId().then((assignedId) => {
+      if (assignedId && assignedId !== participantId) {
+        setParticipantId(assignedId);
+      }
+    });
+  }, []);
 
   // Sync with window URL / hash on mount
   useEffect(() => {

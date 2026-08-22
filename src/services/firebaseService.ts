@@ -12,6 +12,7 @@ import {
   query,
   orderBy,
   getDocFromServer,
+  runTransaction,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { Booth, Participant, FestivalSettings, ScanResult, SnackRedeemResult } from '../types';
@@ -113,16 +114,108 @@ export function generateBoothToken(prefix = 'KFC'): string {
 }
 
 /**
- * Get or create persistent anonymous Participant ID in local device
+ * Format participant ID for display (e.g. participant_1 -> "참가자 #1")
+ */
+export function formatParticipantDisplay(id?: string | null): string {
+  if (!id) return '참가자 #1';
+  const num = String(id).replace('participant_', '').replace('#', '');
+  return `참가자 #${num}`;
+}
+
+/**
+ * Format participant number only (e.g. participant_1 -> "#1")
+ */
+export function formatParticipantNumber(id?: string | null): string {
+  if (!id) return '#1';
+  const num = String(id).replace('participant_', '').replace('#', '');
+  return `#${num}`;
+}
+
+/**
+ * Check if a participant ID is sequential numeric (e.g. participant_1, participant_12, 1, 12)
+ */
+export function isNumericParticipantId(id: string): boolean {
+  return /^(?:participant_)?\d+$/.test(id);
+}
+
+/**
+ * Get or create initial Participant ID in local device (Synchronous)
  */
 export function getOrCreateParticipantId(): string {
   let id = localStorage.getItem(LOCAL_STORAGE_KEYS.PARTICIPANT_ID);
-  if (!id) {
-    const randomHex = generateRandomCode(6);
-    id = `participant_${randomHex}`;
-    localStorage.setItem(LOCAL_STORAGE_KEYS.PARTICIPANT_ID, id);
+  if (id && isNumericParticipantId(id)) {
+    const num = id.replace('participant_', '');
+    const cleanId = `participant_${num}`;
+    if (cleanId !== id) {
+      localStorage.setItem(LOCAL_STORAGE_KEYS.PARTICIPANT_ID, cleanId);
+    }
+    return cleanId;
   }
-  return id;
+
+  // Initial sequence placeholder (will be verified/incremented via allocateNextParticipantId)
+  const initial = 'participant_1';
+  localStorage.setItem(LOCAL_STORAGE_KEYS.PARTICIPANT_ID, initial);
+  return initial;
+}
+
+/**
+ * Atomically allocate the next sequential participant number from Firestore.
+ * Numbers count up sequentially: 1, 2, 3, 4, 5...
+ */
+export async function allocateNextParticipantId(): Promise<string> {
+  const existingId = localStorage.getItem(LOCAL_STORAGE_KEYS.PARTICIPANT_ID);
+
+  // If already set and is numeric, check if it's already a valid registered sequence
+  if (existingId && isNumericParticipantId(existingId)) {
+    const num = existingId.replace('participant_', '');
+    const cleanId = `participant_${num}`;
+    try {
+      const counterRef = doc(db, 'settings', 'counters');
+      const counterSnap = await getDoc(counterRef);
+      if (counterSnap.exists()) {
+        const lastNum = counterSnap.data().lastParticipantNumber || 0;
+        if (lastNum >= parseInt(num, 10)) {
+          return cleanId;
+        }
+      }
+    } catch {
+      return cleanId;
+    }
+  }
+
+  try {
+    const counterRef = doc(db, 'settings', 'counters');
+    const nextNum = await runTransaction(db, async (transaction) => {
+      const counterDoc = await transaction.get(counterRef);
+      let current = 0;
+      if (counterDoc.exists()) {
+        current = Number(counterDoc.data().lastParticipantNumber) || 0;
+      } else {
+        // If counter does not exist yet, find max number from existing participants
+        const partsSnap = await getDocs(collection(db, 'participants'));
+        partsSnap.forEach((d) => {
+          const m = d.id.match(/^(?:participant_)?(\d+)$/);
+          if (m) {
+            const n = parseInt(m[1], 10);
+            if (n > current) current = n;
+          }
+        });
+      }
+      const next = current + 1;
+      transaction.set(counterRef, { lastParticipantNumber: next }, { merge: true });
+      return next;
+    });
+
+    const newId = `participant_${nextNum}`;
+    localStorage.setItem(LOCAL_STORAGE_KEYS.PARTICIPANT_ID, newId);
+    return newId;
+  } catch (err) {
+    console.warn('[Firestore] allocateNextParticipantId fallback:', err);
+    if (existingId && isNumericParticipantId(existingId)) {
+      return `participant_${existingId.replace('participant_', '')}`;
+    }
+    return 'participant_1';
+  }
 }
 
 /**
@@ -428,11 +521,33 @@ export async function redeemSnackQR(qrDataOrParticipantId: string): Promise<Snac
     return { success: false, message: '참가자 식별 정보가 올바르지 않습니다.' };
   }
 
-  const participantRef = doc(db, 'participants', id);
-  const docSnap = await getDoc(participantRef);
+  let participantRef = doc(db, 'participants', id);
+  let docSnap = await getDoc(participantRef);
+
+  // If not found, try flexible lookup with/without participant_ prefix
+  if (!docSnap.exists()) {
+    const rawNum = id.replace('participant_', '').replace('#', '');
+    if (/^\d+$/.test(rawNum)) {
+      const candidate1 = doc(db, 'participants', `participant_${rawNum}`);
+      const snap1 = await getDoc(candidate1);
+      if (snap1.exists()) {
+        participantRef = candidate1;
+        docSnap = snap1;
+        id = `participant_${rawNum}`;
+      } else {
+        const candidate2 = doc(db, 'participants', rawNum);
+        const snap2 = await getDoc(candidate2);
+        if (snap2.exists()) {
+          participantRef = candidate2;
+          docSnap = snap2;
+          id = rawNum;
+        }
+      }
+    }
+  }
 
   if (!docSnap.exists()) {
-    return { success: false, message: `등록되지 않은 참가자 ID입니다. (${id})` };
+    return { success: false, message: `등록되지 않은 참가자 번호입니다. (${formatParticipantDisplay(id)})` };
   }
 
   const participant = docSnap.data() as Participant;
@@ -492,7 +607,7 @@ export async function redeemSnackQR(qrDataOrParticipantId: string): Promise<Snac
   return {
     success: true,
     alreadyClaimed: false,
-    message: `🎉 [${id.replace('participant_', 'ID: ')}] 간식 지급 완료 처리되었습니다! (${formattedTime})`,
+    message: `🎉 [${formatParticipantDisplay(id)}] 간식 지급 완료 처리되었습니다! (${formattedTime})`,
     participant: updatedParticipant,
   };
 }
@@ -544,6 +659,19 @@ export async function resetParticipant(participantId: string): Promise<void> {
 }
 
 /**
+ * Mark Snack Claimed in Firestore (One-way: only sets to claimed, cannot be undone by visitor)
+ */
+export async function markSnackClaimed(participantId: string): Promise<void> {
+  const participantRef = doc(db, 'participants', participantId);
+  const now = Date.now();
+  await updateDoc(participantRef, {
+    snackClaimed: true,
+    snackClaimedAt: now,
+    lastActiveAt: now,
+  });
+}
+
+/**
  * Admin: Toggle Snack Claimed state in Firestore
  */
 export async function toggleSnackClaimed(participantId: string, currentStatus: boolean): Promise<void> {
@@ -563,5 +691,11 @@ export async function resetAllParticipants(): Promise<void> {
   const snapshot = await getDocs(collection(db, 'participants'));
   for (const docSnap of snapshot.docs) {
     await deleteDoc(doc(db, 'participants', docSnap.id));
+  }
+  // Reset sequential counter back to 0
+  try {
+    await setDoc(doc(db, 'settings', 'counters'), { lastParticipantNumber: 0 });
+  } catch (err) {
+    console.warn('[Firestore] Reset counter error:', err);
   }
 }
