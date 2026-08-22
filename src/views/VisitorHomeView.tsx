@@ -11,6 +11,8 @@ import {
   ChevronRight,
   Gift,
   Zap,
+  Camera,
+  RefreshCw,
 } from 'lucide-react';
 import { Booth, Participant, FestivalSettings } from '../types';
 
@@ -20,6 +22,7 @@ interface VisitorHomeViewProps {
   settings: FestivalSettings;
   onOpenScanner: () => void;
   onNavigateToComplete: () => void;
+  onOpenPermissionModal?: () => void;
 }
 
 export const VisitorHomeView: React.FC<VisitorHomeViewProps> = ({
@@ -28,6 +31,7 @@ export const VisitorHomeView: React.FC<VisitorHomeViewProps> = ({
   settings,
   onOpenScanner,
   onNavigateToComplete,
+  onOpenPermissionModal,
 }) => {
   const [selectedBooth, setSelectedBooth] = useState<Booth | null>(null);
 
@@ -40,6 +44,26 @@ export const VisitorHomeView: React.FC<VisitorHomeViewProps> = ({
 
   return (
     <div className="min-h-[calc(100vh-4rem)] pb-24">
+      {/* Top Camera Permission Helper Bar */}
+      {onOpenPermissionModal && (
+        <div className="bg-slate-900/95 border-b border-slate-800 px-4 py-2 text-xs">
+          <div className="max-w-xl mx-auto flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-slate-300">
+              <Camera className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+              <span className="truncate">카메라 권한을 놓치셨나요?</span>
+            </div>
+            <button
+              onClick={onOpenPermissionModal}
+              className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[11px] font-bold shrink-0 transition-colors flex items-center gap-1"
+              id="btn-top-camera-permission"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>카메라 사용 다시 수락</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Hero Header Section */}
       <section className="relative overflow-hidden pt-8 pb-6 px-4 text-center">
         {/* Glow ambient background */}

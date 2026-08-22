@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Shield, QrCode, Home, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Bot, Shield, QrCode, Home, Sparkles, Camera } from 'lucide-react';
 import { isFirebaseConfigured } from '../lib/firebase';
 
 interface NavbarProps {
@@ -7,6 +7,7 @@ interface NavbarProps {
   onNavigate: (view: string) => void;
   participantId?: string;
   isCompleted?: boolean;
+  onOpenPermissionModal?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -14,6 +15,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigate,
   participantId,
   isCompleted,
+  onOpenPermissionModal,
 }) => {
   const isAdminView = currentView.startsWith('admin');
 
@@ -48,8 +50,21 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center gap-2">
           {!isAdminView ? (
             <>
+              {/* Camera Re-request Quick Button in Top Bar */}
+              {onOpenPermissionModal && (
+                <button
+                  onClick={onOpenPermissionModal}
+                  className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-750 text-slate-300 hover:text-cyan-300 text-xs font-medium transition-colors"
+                  title="카메라 권한 다시 수락하기"
+                  id="btn-nav-camera-permission"
+                >
+                  <Camera className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>카메라 권한</span>
+                </button>
+              )}
+
               {participantId && (
-                <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-300 font-mono">
+                <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-300 font-mono">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   <span>ID: {participantId.replace('participant_', '')}</span>
                 </div>
@@ -101,3 +116,4 @@ export const Navbar: React.FC<NavbarProps> = ({
     </header>
   );
 };
+

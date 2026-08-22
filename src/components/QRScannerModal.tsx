@@ -13,9 +13,11 @@ import {
   WifiOff,
   Gift,
   Lock,
+  Smartphone,
 } from 'lucide-react';
 import { verifyAndCompleteBooth, redeemSnackQR } from '../services/firebaseService';
 import { soundService } from '../services/soundService';
+import { requestCameraAccess } from '../services/cameraService';
 import { ScanResult, Booth, SnackRedeemResult } from '../types';
 import confetti from 'canvas-confetti';
 
@@ -26,6 +28,7 @@ interface QRScannerModalProps {
   onSuccess: (result: ScanResult) => void;
   onNavigateToComplete?: () => void;
   availableBooths?: Booth[];
+  onOpenPermissionGuide?: () => void;
 }
 
 export const QRScannerModal: React.FC<QRScannerModalProps> = ({
@@ -35,10 +38,12 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
   onSuccess,
   onNavigateToComplete,
   availableBooths = [],
+  onOpenPermissionGuide,
 }) => {
   const [scannerActive, setScannerActive] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isRequestingPermission, setIsRequestingPermission] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [snackResult, setSnackResult] = useState<SnackRedeemResult | null>(null);
   const [manualCode, setManualCode] = useState('');
@@ -102,13 +107,29 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
         console.warn('Camera start error:', err);
         const errMsg = err instanceof Error ? err.message : String(err);
         if (errMsg.includes('NotAllowedError') || errMsg.includes('Permission denied')) {
-          setPermissionError('카메라 권한이 거부되었습니다. 브라우저 설정에서 카메라 권한을 허용해주세요.');
+          setPermissionError('카메라 권한이 거부되었거나 아직 수락되지 않았습니다.');
         } else {
           setPermissionError('카메라 접근 권한이 필요합니다.');
         }
         setScannerActive(false);
       }
     }, 150);
+  };
+
+  const handleReRequestPermission = async () => {
+    setIsRequestingPermission(true);
+    const result = await requestCameraAccess();
+    setIsRequestingPermission(false);
+
+    if (result.success) {
+      setPermissionError(null);
+      startScanner();
+    } else {
+      setPermissionError(result.errorMessage || '카메라 권한이 허용되지 않았습니다.');
+      if (onOpenPermissionGuide) {
+        onOpenPermissionGuide();
+      }
+    }
   };
 
   const stopScanner = async () => {
@@ -257,13 +278,27 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
               <p className="text-[11px] text-slate-400">체험 부스 또는 간식 교환권 QR 코드를 비춰주세요</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
-            id="btn-close-scanner"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          
+          <div className="flex items-center gap-1.5">
+            {onOpenPermissionGuide && (
+              <button
+                onClick={onOpenPermissionGuide}
+                className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-750 text-cyan-300 border border-cyan-500/30 text-[11px] font-medium transition-colors flex items-center gap-1"
+                title="카메라 권한 설정 안내"
+                id="btn-scanner-permission-guide"
+              >
+                <Camera className="w-3 h-3 text-cyan-400" />
+                <span className="hidden sm:inline">권한 수락</span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+              id="btn-close-scanner"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Content Area */}
@@ -428,19 +463,45 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
             /* Camera Live View */
             <div className="w-full flex flex-col items-center">
               {permissionError ? (
-                <div className="p-4 rounded-2xl bg-slate-800/80 border border-slate-700 text-center w-full my-4">
-                  <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto mb-2" />
-                  <p className="text-xs font-semibold text-slate-200 mb-2">{permissionError}</p>
-                  <p className="text-[11px] text-slate-400 mb-4">
-                    브라우저 주소창 왼쪽의 카메라 아이콘을 눌러 권한을 허용해주세요.
+                <div className="p-5 rounded-2xl bg-slate-800/90 border border-slate-700 text-center w-full my-2 max-w-[320px]">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto mb-2 border border-amber-500/30">
+                    <Camera className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-xs font-bold text-slate-100 mb-1">카메라 권한이 필요합니다</h4>
+                  <p className="text-[11px] text-slate-300 mb-3 leading-relaxed">
+                    {permissionError}
                   </p>
-                  <button
-                    onClick={startScanner}
-                    className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>권한 다시 요청</span>
-                  </button>
+                  
+                  <div className="space-y-2">
+                    <button
+                      onClick={handleReRequestPermission}
+                      disabled={isRequestingPermission}
+                      className="w-full py-2.5 px-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-cyan-500/25 active:scale-95 transition-all disabled:opacity-50"
+                      id="btn-rerequest-camera-permission"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isRequestingPermission ? 'animate-spin' : ''}`} />
+                      <span>카메라 권한 다시 수락하기</span>
+                    </button>
+
+                    {onOpenPermissionGuide && (
+                      <button
+                        onClick={onOpenPermissionGuide}
+                        className="w-full py-2 px-3 rounded-xl bg-slate-700 hover:bg-slate-650 text-slate-200 text-[11px] font-medium transition-colors flex items-center justify-center gap-1"
+                        id="btn-open-permission-guide"
+                      >
+                        <Smartphone className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>기기별 권한 허용 가이드 보기</span>
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => setShowManualInput(true)}
+                      className="w-full py-2 px-3 rounded-xl bg-slate-900 border border-slate-750 text-cyan-400 text-[11px] font-semibold flex items-center justify-center gap-1 hover:bg-slate-850 transition-colors"
+                    >
+                      <Keyboard className="w-3.5 h-3.5" />
+                      <span>부스 코드 직접 입력하기</span>
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="relative w-full aspect-square max-w-[280px] rounded-2xl overflow-hidden border-2 border-cyan-500/40 bg-black shadow-inner flex items-center justify-center">

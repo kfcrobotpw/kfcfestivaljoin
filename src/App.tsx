@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Navbar } from './components/Navbar';
 import { QRScannerModal } from './components/QRScannerModal';
 import { PrintableQRModal } from './components/PrintableQRModal';
+import { CameraPermissionModal } from './components/CameraPermissionModal';
 
 import { VisitorHomeView } from './views/VisitorHomeView';
 import { ScanView } from './views/ScanView';
@@ -50,6 +51,7 @@ export default function App() {
 
   // Modals
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [selectedQRBooth, setSelectedQRBooth] = useState<Booth | null>(null);
 
   // Sync with window URL / hash on mount
@@ -152,6 +154,7 @@ export default function App() {
         onNavigate={navigate}
         participantId={participantId}
         isCompleted={participant?.isCompleted}
+        onOpenPermissionModal={() => setIsPermissionModalOpen(true)}
       />
 
       {/* Main View Router */}
@@ -164,6 +167,7 @@ export default function App() {
             settings={settings}
             onOpenScanner={() => setIsScannerOpen(true)}
             onNavigateToComplete={() => navigate('complete')}
+            onOpenPermissionModal={() => setIsPermissionModalOpen(true)}
           />
         )}
 
@@ -258,6 +262,7 @@ export default function App() {
         onSuccess={handleScanSuccess}
         onNavigateToComplete={() => navigate('complete')}
         availableBooths={booths.filter((b) => b.active)}
+        onOpenPermissionGuide={() => setIsPermissionModalOpen(true)}
       />
 
       {/* High-Resolution Printable Stand Modal */}
@@ -266,6 +271,15 @@ export default function App() {
         onClose={() => setSelectedQRBooth(null)}
         booth={selectedQRBooth}
         allBooths={booths}
+      />
+
+      {/* Camera Permission Re-request & Step-by-Step Guide Modal */}
+      <CameraPermissionModal
+        isOpen={isPermissionModalOpen}
+        onClose={() => setIsPermissionModalOpen(false)}
+        onPermissionGranted={() => {
+          setIsScannerOpen(true);
+        }}
       />
     </div>
   );

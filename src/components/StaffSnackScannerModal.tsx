@@ -10,9 +10,11 @@ import {
   Keyboard,
   ShieldCheck,
   Lock,
+  Camera,
 } from 'lucide-react';
 import { redeemSnackQR } from '../services/firebaseService';
 import { soundService } from '../services/soundService';
+import { requestCameraAccess } from '../services/cameraService';
 import { SnackRedeemResult } from '../types';
 import confetti from 'canvas-confetti';
 
@@ -28,6 +30,7 @@ export const StaffSnackScannerModal: React.FC<StaffSnackScannerModalProps> = ({
   const [scannerActive, setScannerActive] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isRequestingPermission, setIsRequestingPermission] = useState(false);
   const [redeemResult, setRedeemResult] = useState<SnackRedeemResult | null>(null);
   const [manualInput, setManualInput] = useState('');
   const [showManualInput, setShowManualInput] = useState(false);
@@ -96,6 +99,19 @@ export const StaffSnackScannerModal: React.FC<StaffSnackScannerModalProps> = ({
         setScannerActive(false);
       }
     }, 150);
+  };
+
+  const handleReRequestPermission = async () => {
+    setIsRequestingPermission(true);
+    const result = await requestCameraAccess();
+    setIsRequestingPermission(false);
+
+    if (result.success) {
+      setPermissionError(null);
+      startScanner();
+    } else {
+      setPermissionError(result.errorMessage || '카메라 권한이 허용되지 않았습니다.');
+    }
   };
 
   const stopScanner = async () => {
@@ -336,15 +352,17 @@ export const StaffSnackScannerModal: React.FC<StaffSnackScannerModalProps> = ({
           ) : (
             <div className="w-full flex flex-col items-center">
               {permissionError ? (
-                <div className="p-4 rounded-2xl bg-slate-800/80 border border-slate-700 text-center w-full my-4">
+                <div className="p-4 rounded-2xl bg-slate-800/90 border border-slate-700 text-center w-full my-4 max-w-[320px]">
                   <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto mb-2" />
-                  <p className="text-xs font-semibold text-slate-200 mb-2">{permissionError}</p>
+                  <h4 className="text-xs font-bold text-slate-100 mb-1">카메라 권한 필요</h4>
+                  <p className="text-xs font-semibold text-slate-200 mb-3">{permissionError}</p>
                   <button
-                    onClick={startScanner}
-                    className="px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5"
+                    onClick={handleReRequestPermission}
+                    disabled={isRequestingPermission}
+                    className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-bold text-xs inline-flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/20 active:scale-95 transition-all"
                   >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>권한 다시 요청</span>
+                    <RefreshCw className={`w-3.5 h-3.5 ${isRequestingPermission ? 'animate-spin' : ''}`} />
+                    <span>카메라 권한 다시 수락</span>
                   </button>
                 </div>
               ) : (
